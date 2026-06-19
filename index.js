@@ -26,9 +26,14 @@ async function run() {
         const connection = await client.connect();
         const db = connection.db("Freelance-Microtask-Platform");
         const TasksCollection = db.collection("Tasks");
+        const proposalCollection = db.collection("proposals");
         const FreelancersCollection = db.collection("Freelancers");
         const ClientsCollection = db.collection("Clients");
         const ReviewsCollection = db.collection("Reviews");
+
+
+
+
 
 
         // task related funtion
@@ -44,7 +49,7 @@ async function run() {
         });
         app.get('/tasksid/:id', async (req, res) => {
             const id = req.params.id;
-            const result = await TasksCollection.findOne({  _id: new ObjectId(id) });
+            const result = await TasksCollection.findOne({ _id: new ObjectId(id) });
             res.send(result);
         });
         app.get("/my-tasks/:clientId", async (req, res) => {
@@ -53,6 +58,130 @@ async function run() {
                 ClientId: clientId,
             }).toArray();
             res.send(result);
+        });
+
+        app.patch("/updatetaskstatus/:taskId", async (req, res) => {
+            const { taskId } = req.params;
+            console.log("task id", taskId)
+            const { status } = req.body;
+
+            const allowedStatuses = ["booked", "complite"];
+
+            if (!allowedStatuses.includes(status)) {
+                return res.status(400).json({ message: "Invalid status value" });
+            }
+
+            try {
+                // const objectId = await new ObjectId(id);
+
+                const task = await TasksCollection.findOne({ _id: new ObjectId(taskId) });
+                console.log(task)
+
+                if (!task) {
+                    return res.status(404).json({
+                        message: "Proposal not found",
+                        id,
+                    });
+                }
+
+                const result = await TasksCollection.updateOne(
+                    { _id: new ObjectId(taskId) },
+                    { $set: { status } }
+                );
+
+                res.json({
+                    message: "Updated successfully",
+                    modifiedCount: result.modifiedCount,
+                });
+
+            } catch (error) {
+                console.log(error);
+                res.status(500).json({ message: "Server error janina" });
+            }
+        });
+
+        app.delete("/deleteclinttask/:id", async (req, res) => {
+            const id = req.params.id
+            console.log("clint task delete", id)
+            const result = await TasksCollection.deleteOne({ _id: new ObjectId(id) })
+            res.send(result)
+        })
+
+
+        //proposal related funtion
+
+        app.post('/proposals', async (req, res) => {
+            const proposal = req.body;
+            const result = await proposalCollection.insertOne(proposal);
+            res.send(result);
+        });
+
+
+        app.patch("/task/proposals/:id", async (req, res) => {
+            const { id } = req.params;
+            console.log(id)
+            const { status } = req.body;
+
+            const allowedStatuses = ["pending", "accepted", "rejected"];
+
+            if (!allowedStatuses.includes(status)) {
+                return res.status(400).json({ message: "Invalid status value" });
+            }
+
+            try {
+                // const objectId = await new ObjectId(id);
+
+                const proposal = await proposalCollection.findOne({ _id: id });
+
+                if (!proposal) {
+                    return res.status(404).json({
+                        message: "Proposal not found",
+                        id,
+                    });
+                }
+
+                const result = await proposalCollection.updateOne(
+                    { _id: id },
+                    { $set: { status } }
+                );
+
+                res.json({
+                    message: "Updated successfully",
+                    modifiedCount: result.modifiedCount,
+                });
+
+            } catch (error) {
+                console.log(error);
+                res.status(500).json({ message: "Server error" });
+            }
+        });
+
+        app.get('/myProposals/:id', async (req, res) => {
+            const id = req.params.id;
+            const result = await proposalCollection.find({ FreelancerId: id }).toArray();
+            res.send(result);
+        });
+        app.get('/ClintProposals/:id', async (req, res) => {
+            const id = req.params.id;
+            const result = await proposalCollection.find({ ClientId: id }).toArray();
+            res.send(result);
+        });
+
+        app.get("/proposalTaskid/:id", async (req, res) => {
+            try {
+                const { id } = req.params;
+
+                // উদাহরণ ডাটাবেস কল (MongoDB ধরলাম)
+                const data = await proposalCollection.findOne({ _id: id });
+
+                if (!data) {
+                    return res.status(404).json({ message: "Data not found" });
+                }
+
+                res.json(data);
+            } catch (error) {
+                res.status(500).json({ message: "Server error", error });
+            }
         });
 
 
