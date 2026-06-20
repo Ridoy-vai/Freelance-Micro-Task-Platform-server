@@ -4,7 +4,7 @@ app.use(express.json());
 const cors = require('cors');
 require('dotenv').config();
 app.use(cors());
-const port = process.env.PORT || 5000;
+const port = process.env.PORT;
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 const uri = process.env.MONGODB_URI;
 
@@ -39,11 +39,40 @@ async function run() {
             res.send(result)
         })
 
+
         app.get("/freelancers", async (req, res) => {
-            // const id = req.params.id;
-            const result = await UserCollection.find().toArray()
-            res.send(result)
-        })
+            try {
+                const search = req.query.search || "";
+                const minBudgetFrom = req.query.minBudgetFrom;
+                const minBudgetTo = req.query.minBudgetTo;
+
+                const query = {
+                    role: "freelancer", 
+                };
+
+                if (search) {
+                    query.name = { $regex: search, $options: "i" };
+                }
+
+                if (minBudgetFrom || minBudgetTo) {
+                    query.minBudget = {};
+
+                    if (minBudgetFrom) {
+                        query.minBudget.$gte = Number(minBudgetFrom);
+                    }
+
+                    if (minBudgetTo) {
+                        query.minBudget.$lte = Number(minBudgetTo);
+                    }
+                }
+
+                const result = await UserCollection.find(query).toArray();
+                res.send(result);
+            } catch (error) {
+                console.error(error);
+                res.status(500).send({ message: "Server error" });
+            }
+        });
 
 
 
@@ -56,12 +85,7 @@ async function run() {
             const result = await TasksCollection.insertOne(task);
             res.send(result);
         });
-        // app.get('/tasks', async (req, res) => {
-        //     const limit = parseInt(req.query.limit) || 0; // Get the limit from query parameters, default to 0 (no limit)
-        //     const result = await TasksCollection.find().limit(limit).toArray();
-        //     res.send(result);
-        // });
-
+       
 
         app.get('/tasks', async (req, res) => {
             try {
@@ -70,7 +94,7 @@ async function run() {
                 const search = req.query.search || "";
                 const category = req.query.category || "";
 
-                // query object বানানো হচ্ছে
+                // query object
                 const query = {};
 
                 if (search) {
@@ -94,32 +118,6 @@ async function run() {
                 res.status(500).send({ message: "Server error" });
             }
         });
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
         app.get('/tasksid/:id', async (req, res) => {
             const id = req.params.id;
@@ -201,7 +199,6 @@ async function run() {
                     });
                 }
 
-                console.log("proposal delete:", id);
 
                 const result = await proposalCollection.deleteOne({ _id: id });
 
@@ -257,7 +254,6 @@ async function run() {
                     },
                 };
 
-                // শুধু submited হলে date save করবে
                 if (status === "submited") {
                     updateDoc.$set.submitDate = submitDate || new Date().toISOString();
                 }
@@ -292,8 +288,6 @@ async function run() {
         app.get("/proposalTaskid/:id", async (req, res) => {
             try {
                 const { id } = req.params;
-
-                // উদাহরণ ডাটাবেস কল (MongoDB ধরলাম)
                 const data = await proposalCollection.findOne({ _id: id });
 
                 if (!data) {
@@ -307,9 +301,264 @@ async function run() {
         });
 
 
+        app.get("/admin/users", async (req, res) => {
+            try {
+                const result = await UserCollection.find({
+                    role: { $in: ["client", "freelancer"] },
+                }).toArray();
+
+                res.send(result);
+            } catch (error) {
+                console.error(error);
+                res.status(500).send({ message: "Server error" });
+            }
+        });
+
+        // Block / Unblock  route
+        app.patch("/admin/users/:id/block", async (req, res) => {
+            try {
+                const { id } = req.params;
+                const { isBlocked } = req.body; // true অথবা false
+
+                if (!ObjectId.isValid(id)) {
+                    return res.status(400).send({
+                        success: false,
+                        message: "Invalid user id",
+                    });
+                }
+
+                const result = await UserCollection.updateOne(
+                    { _id: new ObjectId(id) },
+                    { $set: { isBlocked: Boolean(isBlocked) } }
+                );
+
+                if (result.matchedCount === 0) {
+                    return res.status(404).send({
+                        success: false,
+                        message: "User not found",
+                    });
+                }
+
+                res.send({
+                    success: true,
+                    message: isBlocked
+                        ? "User blocked successfully"
+                        : "User unblocked successfully",
+                    modifiedCount: result.modifiedCount,
+                });
+            } catch (error) {
+                console.error(error);
+                res.status(500).send({ message: "Server error" });
+            }
+        });
+
+
+        app.get("/admin/tasks", async (req, res) => {
+            try {
+                const result = await TasksCollection.find().toArray();
+                res.send(result);
+            } catch (error) {
+                console.error(error);
+                res.status(500).send({ message: "Server error" });
+            }
+        });
+
+        // Task delete 
+        app.delete("/admin/tasks/:id", async (req, res) => {
+            try {
+                const { id } = req.params;
+
+                if (!ObjectId.isValid(id)) {
+                    return res.status(400).send({
+                        success: false,
+                        message: "Invalid task id",
+                    });
+                }
+
+                const result = await TasksCollection.deleteOne({
+                    _id: new ObjectId(id),
+                });
+
+                if (result.deletedCount === 0) {
+                    return res.status(404).send({
+                        success: false,
+                        message: "Task not found",
+                    });
+                }
+
+                res.send({
+                    success: true,
+                    message: "Task deleted successfully",
+                    deletedCount: result.deletedCount,
+                });
+            } catch (error) {
+                console.error(error);
+                res.status(500).send({ message: "Server error" });
+            }
+        });
+
+        app.patch("/admin/tasks/:id/status", async (req, res) => {
+            try {
+                const { id } = req.params;
+                const { status } = req.body;
+
+                const allowedStatuses = ["open", "booked", "submited"];
+
+                if (!ObjectId.isValid(id)) {
+                    return res.status(400).send({
+                        success: false,
+                        message: "Invalid task id",
+                    });
+                }
+
+                if (!allowedStatuses.includes(status)) {
+                    return res.status(400).send({
+                        success: false,
+                        message: "Invalid status value",
+                    });
+                }
+
+                const result = await TasksCollection.updateOne(
+                    { _id: new ObjectId(id) },
+                    { $set: { status } }
+                );
+
+                if (result.matchedCount === 0) {
+                    return res.status(404).send({
+                        success: false,
+                        message: "Task not found",
+                    });
+                }
+
+                res.send({
+                    success: true,
+                    message: "Status updated successfully",
+                    modifiedCount: result.modifiedCount,
+                });
+            } catch (error) {
+                console.error(error);
+                res.status(500).send({ message: "Server error" });
+            }
+        });
+
+        app.patch("/admin/tasks/:id/feature", async (req, res) => {
+            try {
+                const { id } = req.params;
+                const { isFeatured } = req.body;
+
+                if (!ObjectId.isValid(id)) {
+                    return res.status(400).send({
+                        success: false,
+                        message: "Invalid task id",
+                    });
+                }
+
+                const result = await TasksCollection.updateOne(
+                    { _id: new ObjectId(id) },
+                    { $set: { isFeatured: Boolean(isFeatured) } }
+                );
+
+                if (result.matchedCount === 0) {
+                    return res.status(404).send({
+                        success: false,
+                        message: "Task not found",
+                    });
+                }
+
+                res.send({
+                    success: true,
+                    message: isFeatured
+                        ? "Task featured successfully"
+                        : "Task unfeatured successfully",
+                    modifiedCount: result.modifiedCount,
+                });
+            } catch (error) {
+                console.error(error);
+                res.status(500).send({ message: "Server error" });
+            }
+        });
+
+        app.get("/admin/proposals", async (req, res) => {
+            try {
+                const result = await proposalCollection.find().toArray();
+                res.send(result);
+            } catch (error) {
+                console.error(error);
+                res.status(500).send({ message: "Server error" });
+            }
+        });
+
+
+        // freelancer actions
+        app.get("/users/:id", async (req, res) => {
+            try {
+                const { id } = req.params;
+
+                if (!ObjectId.isValid(id)) {
+                    return res.status(400).send({ message: "Invalid user id" });
+                }
+
+                const user = await UserCollection.findOne({ _id: new ObjectId(id) });
+
+                if (!user) {
+                    return res.status(404).send({ message: "User not found" });
+                }
+
+                res.send(user);
+            } catch (error) {
+                console.error(error);
+                res.status(500).send({ message: "Server error" });
+            }
+        });
 
 
 
+        app.patch("/users/:id/profile", async (req, res) => {
+            try {
+                const { id } = req.params;
+                const { title, bio, hourlyRate, location, skills, category } = req.body;
+
+                if (!ObjectId.isValid(id)) {
+                    return res.status(400).send({
+                        success: false,
+                        message: "Invalid user id",
+                    });
+                }
+
+                const updateDoc = {
+                    $set: {
+                        title,
+                        bio,
+                        hourlyRate: Number(hourlyRate),
+                        location,
+                        skills,
+                        category,
+                        updatedAt: new Date(),
+                    },
+                };
+
+                const result = await UserCollection.updateOne(
+                    { _id: new ObjectId(id) },
+                    updateDoc
+                );
+
+                if (result.matchedCount === 0) {
+                    return res.status(404).send({
+                        success: false,
+                        message: "User not found",
+                    });
+                }
+
+                res.send({
+                    success: true,
+                    message: "Profile updated successfully",
+                    modifiedCount: result.modifiedCount,
+                });
+            } catch (error) {
+                console.error(error);
+                res.status(500).send({ message: "Server error" });
+            }
+        });
 
 
 
