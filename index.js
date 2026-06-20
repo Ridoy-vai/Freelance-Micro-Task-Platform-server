@@ -56,11 +56,71 @@ async function run() {
             const result = await TasksCollection.insertOne(task);
             res.send(result);
         });
+        // app.get('/tasks', async (req, res) => {
+        //     const limit = parseInt(req.query.limit) || 0; // Get the limit from query parameters, default to 0 (no limit)
+        //     const result = await TasksCollection.find().limit(limit).toArray();
+        //     res.send(result);
+        // });
+
+
         app.get('/tasks', async (req, res) => {
-            const limit = parseInt(req.query.limit) || 0; // Get the limit from query parameters, default to 0 (no limit)
-            const result = await TasksCollection.find().limit(limit).toArray();
-            res.send(result);
+            try {
+                const limit = parseInt(req.query.limit) || 0; // 0 মানে limit নেই
+                const skip = parseInt(req.query.skip) || 0;
+                const search = req.query.search || "";
+                const category = req.query.category || "";
+
+                // query object বানানো হচ্ছে
+                const query = {};
+
+                if (search) {
+                    // title-এ case-insensitive search
+                    query.title = { $regex: search, $options: "i" };
+                }
+
+                if (category && category !== "All") {
+                    query.category = category;
+                }
+
+                const result = await TasksCollection
+                    .find(query)
+                    .skip(skip)
+                    .limit(limit)
+                    .toArray();
+
+                res.send(result);
+            } catch (error) {
+                console.error(error);
+                res.status(500).send({ message: "Server error" });
+            }
         });
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
         app.get('/tasksid/:id', async (req, res) => {
             const id = req.params.id;
             const result = await TasksCollection.findOne({ _id: new ObjectId(id) });
@@ -79,7 +139,7 @@ async function run() {
             console.log("task id", taskId)
             const { status } = req.body;
 
-            const allowedStatuses = ["booked", "complite"];
+            const allowedStatuses = ["booked", "submited"];
 
             if (!allowedStatuses.includes(status)) {
                 return res.status(400).json({ message: "Invalid status value" });
@@ -130,21 +190,58 @@ async function run() {
             res.send(result);
         });
 
+        app.delete("/proposals/:id", async (req, res) => {
+            try {
+                const { id } = req.params;
+
+                if (!ObjectId.isValid(id)) {
+                    return res.status(400).send({
+                        success: false,
+                        message: "Invalid proposal id",
+                    });
+                }
+
+                console.log("proposal delete:", id);
+
+                const result = await proposalCollection.deleteOne({ _id: id });
+
+                if (result.deletedCount === 0) {
+                    return res.status(404).send({
+                        success: false,
+                        message: "Proposal not found",
+                    });
+                }
+
+                res.send({
+                    success: true,
+                    message: "Proposal deleted successfully",
+                    deletedCount: result.deletedCount,
+                });
+
+            } catch (error) {
+                console.error(error);
+                res.status(500).send({
+                    success: false,
+                    message: "Server error",
+                });
+            }
+        });
+
 
         app.patch("/task/proposals/:id", async (req, res) => {
             const { id } = req.params;
-            console.log(id)
-            const { status } = req.body;
 
-            const allowedStatuses = ["pending", "accepted", "rejected"];
+            const { status, submitDate } = req.body;
+
+            const allowedStatuses = ["pending", "accepted", "rejected", "submited"];
 
             if (!allowedStatuses.includes(status)) {
-                return res.status(400).json({ message: "Invalid status value" });
+                return res.status(400).json({
+                    message: "Invalid status value",
+                });
             }
 
             try {
-                // const objectId = await new ObjectId(id);
-
                 const proposal = await proposalCollection.findOne({ _id: id });
 
                 if (!proposal) {
@@ -154,9 +251,20 @@ async function run() {
                     });
                 }
 
+                const updateDoc = {
+                    $set: {
+                        status,
+                    },
+                };
+
+                // শুধু submited হলে date save করবে
+                if (status === "submited") {
+                    updateDoc.$set.submitDate = submitDate || new Date().toISOString();
+                }
+
                 const result = await proposalCollection.updateOne(
                     { _id: id },
-                    { $set: { status } }
+                    updateDoc
                 );
 
                 res.json({
