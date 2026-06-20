@@ -30,6 +30,20 @@ async function run() {
         const FreelancersCollection = db.collection("Freelancers");
         const ClientsCollection = db.collection("Clients");
         const ReviewsCollection = db.collection("Reviews");
+        const UserCollection = db.collection("user");
+
+
+        app.get("/users/:id", async (req, res) => {
+            const id = req.params.id;
+            const result = await UserCollection.findOne({ _id: new ObjectId(id) })
+            res.send(result)
+        })
+
+        app.get("/freelancers", async (req, res) => {
+            // const id = req.params.id;
+            const result = await UserCollection.find().toArray()
+            res.send(result)
+        })
 
 
 
