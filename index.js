@@ -31,6 +31,30 @@ async function run() {
         const ClientsCollection = db.collection("Clients");
         const ReviewsCollection = db.collection("Reviews");
         const UserCollection = db.collection("user");
+        const PaymentsCollection = db.collection("Payments");
+        const TaskCollection = db.collection("Tasks");
+
+
+        app.get("/alluserusers", async (req, res) => {
+            const id = req.params.id;
+            const result = await UserCollection.find()
+            res.send(result)
+        })
+        app.get("/alltask", async (req, res) => {
+            const id = req.params.id;
+            const result = await TaskCollection.find()
+            res.send(result)
+        })
+        app.get("/allpayment", async (req, res) => {
+            const id = req.params.id;
+            const result = await PaymentsCollection.find()
+            res.send(result)
+        })
+        app.get("/allproposals", async (req, res) => {
+            const id = req.params.id;
+            const result = await proposalCollection.find()
+            res.send(result)
+        })
 
 
         app.get("/users/:id", async (req, res) => {
@@ -38,45 +62,56 @@ async function run() {
             const result = await UserCollection.findOne({ _id: new ObjectId(id) })
             res.send(result)
         })
-
-
         app.get("/freelancers", async (req, res) => {
             try {
                 const search = req.query.search || "";
                 const minBudgetFrom = req.query.minBudgetFrom;
                 const minBudgetTo = req.query.minBudgetTo;
+                const page = parseInt(req.query.page) || 1;
+                const limit = parseInt(req.query.limit) || 10;
+                const skip = (page - 1) * limit;
 
                 const query = {
-                    role: "freelancer", 
+                    role: "freelancer",
                 };
 
                 if (search) {
                     query.name = { $regex: search, $options: "i" };
                 }
 
+                // hourlyRate filter — budget range er moddhe freelancer er hourlyRate thakle dekhabe
                 if (minBudgetFrom || minBudgetTo) {
-                    query.minBudget = {};
+                    query.hourlyRate = {};
 
                     if (minBudgetFrom) {
-                        query.minBudget.$gte = Number(minBudgetFrom);
+                        query.hourlyRate.$gte = Number(minBudgetFrom);
                     }
 
                     if (minBudgetTo) {
-                        query.minBudget.$lte = Number(minBudgetTo);
+                        query.hourlyRate.$lte = Number(minBudgetTo);
                     }
                 }
 
-                const result = await UserCollection.find(query).toArray();
-                res.send(result);
+                const totalItems = await UserCollection.countDocuments(query);
+                const totalPages = Math.ceil(totalItems / limit);
+
+                const result = await UserCollection.find(query)
+                    .skip(skip)
+                    .limit(limit)
+                    .toArray();
+
+                res.send({
+                    freelancers: result,
+                    totalItems,
+                    totalPages,
+                    currentPage: page,
+                    itemsPerPage: limit,
+                });
             } catch (error) {
                 console.error(error);
                 res.status(500).send({ message: "Server error" });
             }
         });
-
-
-
-
 
 
         // task related funtion
@@ -85,7 +120,7 @@ async function run() {
             const result = await TasksCollection.insertOne(task);
             res.send(result);
         });
-       
+
 
         app.get('/tasks', async (req, res) => {
             try {
@@ -94,11 +129,11 @@ async function run() {
                 const search = req.query.search || "";
                 const category = req.query.category || "";
 
-                // query object
-                const query = {};
+                const query = {
+                    status: "open" // শুধু open task দেখাবে
+                };
 
                 if (search) {
-                    // title-এ case-insensitive search
                     query.title = { $regex: search, $options: "i" };
                 }
 
@@ -106,13 +141,18 @@ async function run() {
                     query.category = category;
                 }
 
+                const totalCount = await TasksCollection.countDocuments(query);
+
                 const result = await TasksCollection
                     .find(query)
                     .skip(skip)
                     .limit(limit)
                     .toArray();
 
-                res.send(result);
+                res.send({
+                    tasks: result,
+                    totalCount
+                });
             } catch (error) {
                 console.error(error);
                 res.status(500).send({ message: "Server error" });
@@ -126,16 +166,35 @@ async function run() {
         });
         app.get("/my-tasks/:clientId", async (req, res) => {
             const clientId = req.params.clientId;
-            const result = await TasksCollection.find({
-                ClientId: clientId,
-            }).toArray();
-            res.send(result);
+            const page = Number(req.query.page) || 1;
+            const limit = Number(req.query.limit) || 2;
+            const skip = (page - 1) * limit;
+
+            try {
+                const query = { ClientId: clientId };
+
+                const totalItems = await TasksCollection.countDocuments(query);
+                const result = await TasksCollection.find(query)
+                    .skip(skip)
+                    .limit(limit)
+                    .toArray();
+
+                res.send({
+                    tasks: result,
+                    totalItems,
+                    totalPages: Math.ceil(totalItems / limit),
+                    currentPage: page,
+                    itemsPerPage: limit,
+                });
+            } catch (error) {
+                console.error(error);
+                res.status(500).send({ message: "Server error" });
+            }
         });
 
         app.patch("/updatetaskstatus/:taskId", async (req, res) => {
             const { taskId } = req.params;
-            console.log("task id", taskId)
-            const { status } = req.body;
+            const { status, submitionLink, submitionMessage } = req.body;
 
             const allowedStatuses = ["booked", "submited"];
 
@@ -144,21 +203,25 @@ async function run() {
             }
 
             try {
-                // const objectId = await new ObjectId(id);
-
                 const task = await TasksCollection.findOne({ _id: new ObjectId(taskId) });
-                console.log(task)
+                const proposal = await proposalCollection.findOne({ _id: taskId });
+                console.log("tproposal for proposal", proposal)
 
                 if (!task) {
                     return res.status(404).json({
                         message: "Proposal not found",
-                        id,
+                        id: taskId,
                     });
                 }
 
+                // একটাই $set object বানালাম, যেখানে link/message থাকলেই add হবে
+                const updateFields = { status };
+                if (submitionLink !== undefined) updateFields.submitionLink = submitionLink;
+                if (submitionMessage !== undefined) updateFields.submitionMessage = submitionMessage;
+
                 const result = await TasksCollection.updateOne(
                     { _id: new ObjectId(taskId) },
-                    { $set: { status } }
+                    { $set: updateFields }
                 );
 
                 res.json({
@@ -166,11 +229,13 @@ async function run() {
                     modifiedCount: result.modifiedCount,
                 });
 
+
             } catch (error) {
                 console.log(error);
                 res.status(500).json({ message: "Server error janina" });
             }
         });
+
 
         app.delete("/deleteclinttask/:id", async (req, res) => {
             const id = req.params.id
@@ -276,8 +341,61 @@ async function run() {
 
         app.get('/myProposals/:id', async (req, res) => {
             const id = req.params.id;
-            const result = await proposalCollection.find({ FreelancerId: id }).toArray();
-            res.send(result);
+            const page = Number(req.query.page) || 1;
+            const limit = Number(req.query.limit) || 2;
+            const skip = (page - 1) * limit;
+
+            try {
+                const query = { FreelancerId: id };
+
+                const totalItems = await proposalCollection.countDocuments(query);
+                const result = await proposalCollection.find(query)
+                    .skip(skip)
+                    .limit(limit)
+                    .toArray();
+
+                res.send({
+                    proposals: result,
+                    totalItems,
+                    totalPages: Math.ceil(totalItems / limit),
+                    currentPage: page,
+                    itemsPerPage: limit,
+                });
+            } catch (error) {
+                console.error(error);
+                res.status(500).send({ message: "Server error" });
+            }
+        });
+
+        app.get('/myActiveProposals/:id', async (req, res) => {
+            const id = req.params.id;
+            const page = Number(req.query.page) || 1;
+            const limit = Number(req.query.limit) || 10;
+            const skip = (page - 1) * limit;
+
+            try {
+                const query = {
+                    FreelancerId: id,
+                    status: "accepted",
+                };
+
+                const totalItems = await proposalCollection.countDocuments(query);
+                const result = await proposalCollection.find(query)
+                    .skip(skip)
+                    .limit(limit)
+                    .toArray();
+
+                res.send({
+                    proposals: result,
+                    totalItems,
+                    totalPages: Math.ceil(totalItems / limit),
+                    currentPage: page,
+                    itemsPerPage: limit,
+                });
+            } catch (error) {
+                console.error(error);
+                res.status(500).send({ message: "Server error" });
+            }
         });
         app.get('/ClintProposals/:id', async (req, res) => {
             const id = req.params.id;
@@ -302,17 +420,26 @@ async function run() {
 
 
         app.get("/admin/users", async (req, res) => {
-            try {
-                const result = await UserCollection.find({
-                    role: { $in: ["client", "freelancer"] },
-                }).toArray();
+            const { page = 1, limite = 10 } = req.query;
+            const skip = (Number(page) - 1) * Number(limite);
 
-                res.send(result);
+            try {
+                const query = { role: { $in: ["client", "freelancer"] } };
+
+                const total = await UserCollection.countDocuments(query);
+                const result = await UserCollection.find(query).skip(skip).limit(Number(limite)).toArray();
+
+                res.send({
+                    users: result,
+                    total,
+                    totalPages: Math.ceil(total / Number(limite)),
+                });
             } catch (error) {
                 console.error(error);
                 res.status(500).send({ message: "Server error" });
             }
         });
+
 
         // Block / Unblock  route
         app.patch("/admin/users/:id/block", async (req, res) => {
@@ -354,9 +481,44 @@ async function run() {
 
 
         app.get("/admin/tasks", async (req, res) => {
+            const { page = 1, limite = 10 } = req.query;
+            const skip = (Number(page) - 1) * Number(limite);
+
             try {
-                const result = await TasksCollection.find().toArray();
-                res.send(result);
+                const total = await TaskCollection.countDocuments({});
+                const result = await TaskCollection.find({})
+                    .skip(skip)
+                    .limit(Number(limite))
+                    .toArray();
+
+                res.send({
+                    tasks: result,
+                    total,
+                    totalPages: Math.ceil(total / Number(limite)),
+                });
+            } catch (error) {
+                console.error(error);
+                res.status(500).send({ message: "Server error" });
+            }
+        });
+
+        app.get("/admin/transactions", async (req, res) => {
+            const { page = 1, limite = 10 } = req.query;
+            const skip = (Number(page) - 1) * Number(limite);
+
+            try {
+                const total = await PaymentsCollection.countDocuments({});
+                const result = await PaymentsCollection.find({})
+                    .sort({ createdAt: -1 })
+                    .skip(skip)
+                    .limit(Number(limite))
+                    .toArray();
+
+                res.send({
+                    transactions: result,
+                    total,
+                    totalPages: Math.ceil(total / Number(limite)),
+                });
             } catch (error) {
                 console.error(error);
                 res.status(500).send({ message: "Server error" });
@@ -560,8 +722,199 @@ async function run() {
             }
         });
 
+        app.patch("/users/:id/increment-submission", async (req, res) => {
+            try {
+                const { id } = req.params;
+
+                if (!ObjectId.isValid(id)) {
+                    return res.status(400).send({
+                        success: false,
+                        message: "Invalid user id",
+                    });
+                }
+
+                const result = await UserCollection.updateOne(
+                    { _id: new ObjectId(id) },
+                    { $inc: { totalJobsSubmitted: 1 } } // 👈 na thakle 1 hobe, thakle +1 hobe
+                );
+
+                if (result.matchedCount === 0) {
+                    return res.status(404).send({
+                        success: false,
+                        message: "User not found",
+                    });
+                }
+
+                res.send({
+                    success: true,
+                    message: "Submission count updated",
+                    modifiedCount: result.modifiedCount,
+                });
+            } catch (error) {
+                console.error(error);
+                res.status(500).send({ message: "Server error" });
+            }
+        });
+
+        //payment related kaj
 
 
+
+        app.post('/payments', async (req, res) => {
+            try {
+                const {
+                    session_id,
+                    ClientId,
+                    Clintemail,
+                    Freelancer,
+                    FreelancerId,   // 👈 add koro
+                    ProposedId,
+                    price,
+                    title
+                } = req.body
+
+                if (!session_id) {
+                    return res.status(400).json({ message: 'session_id is required' })
+                }
+
+                const existing = await PaymentsCollection.findOne({ session_id })
+                if (existing) {
+                    return res.status(200).json({
+                        message: 'Payment already recorded',
+                        alreadyExists: true
+                    })
+                }
+
+                const result = await PaymentsCollection.insertOne({
+                    session_id,
+                    ClientId,
+                    Clintemail,
+                    Freelancer,
+                    FreelancerId,   // 👈 add koro
+                    ProposedId,
+                    price,
+                    title,
+                    createdAt: new Date()
+                })
+
+                res.status(201).json({
+                    message: 'Payment recorded successfully',
+                    insertedId: result.insertedId
+                })
+            } catch (error) {
+                console.log('Error saving payment:', error)
+                res.status(500).json({ message: 'Internal server error' })
+            }
+        })
+
+        app.get("/pendingProposalsByClient/:clientId", async (req, res) => {
+            const clientId = req.params.clientId;
+            console.log(clientId)
+            const page = Number(req.query.page) || 1;
+            const limit = Number(req.query.limit) || 10;
+            const skip = (page - 1) * limit;
+
+            try {
+                const query = {
+                    ClientId: clientId,
+                    status: "pending",
+                };
+
+                const totalItems = await proposalCollection.countDocuments(query);
+                const result = await proposalCollection.find(query)
+                    .sort({ _id: -1 })
+                    .skip(skip)
+                    .limit(limit)
+                    .toArray();
+
+                res.send({
+                    proposals: result,
+                    totalItems,
+                    totalPages: Math.ceil(totalItems / limit),
+                    currentPage: page,
+                    itemsPerPage: limit,
+                });
+            } catch (error) {
+                console.error(error);
+                res.status(500).send({ message: "Server error" });
+            }
+        });
+
+
+
+
+
+        app.get("/myFreelancerTransactions/:freelancerId", async (req, res) => {
+            const freelancerId = req.params.freelancerId;
+            const page = Number(req.query.page) || 1;
+            const limit = Number(req.query.limit) || 10;
+            const skip = (page - 1) * limit;
+
+            try {
+                const query = { FreelancerId: freelancerId };
+
+                const totalItems = await PaymentsCollection.countDocuments(query);
+                const result = await PaymentsCollection.find(query)
+                    .sort({ createdAt: -1 })
+                    .skip(skip)
+                    .limit(limit)
+                    .toArray();
+
+                res.send({
+                    transactions: result,
+                    totalItems,
+                    totalPages: Math.ceil(totalItems / limit),
+                    currentPage: page,
+                    itemsPerPage: limit,
+                });
+            } catch (error) {
+                console.error(error);
+                res.status(500).send({ message: "Server error" });
+            }
+        });
+
+
+       app.patch("/users/:id/profile", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const body = req.body;
+
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid user id",
+      });
+    }
+
+    const updateFields = {
+      ...body,
+      updatedAt: new Date(),
+    };
+
+    if (body.hourlyRate !== undefined) {
+      updateFields.hourlyRate = Number(body.hourlyRate);
+    }
+
+    const result = await UserCollection.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: updateFields }
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "Profile updated successfully",
+      matchedCount: result.matchedCount,
+      modifiedCount: result.modifiedCount,
+    });
+  } catch (error) {
+    console.error("Profile Update Error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+});
 
 
 
@@ -579,3 +932,4 @@ run().catch(console.dir);
 app.listen(port, () => {
     console.log(`Example app listening on port ${port}`)
 })
+
