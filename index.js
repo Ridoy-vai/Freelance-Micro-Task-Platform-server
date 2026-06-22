@@ -25,7 +25,7 @@ const jwks = createRemoteJWKSet(new URL(`${process.env.NEXT_PUBLIC_BETTER_AUTH_U
 
 const verifyToken = async (req, res, next) => {
     const authHeader = req.headers.authorization;
-console.log("authheader", authHeader)
+    console.log("authheader", authHeader)
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
         return res.status(401).json({ message: "Unauthorized: Token not found" });
     }
@@ -266,7 +266,7 @@ async function run() {
 
 
         //clint
-        app.get("/my-tasks/:clientId", verifyToken, async (req, res) => {
+        app.get("/my-tasks/:clientId", async (req, res) => {
             const clientId = req.params.clientId;
             const page = Number(req.query.page) || 1;
             const limit = Number(req.query.limit) || 2;
@@ -626,7 +626,7 @@ async function run() {
             }
         });
 
-        app.get("/admin/transactions", verifyToken, async (req, res) => {
+        app.get("/admin/transactions", async (req, res) => {
             const { page = 1, limite = 10 } = req.query;
             const skip = (Number(page) - 1) * Number(limite);
 
@@ -975,6 +975,85 @@ async function run() {
                 res.status(500).send({ message: "Server error" });
             }
         });
+
+
+        app.put("/updateclinttask/:id", async (req, res) => {
+            try {
+                const id = req.params.id;
+                const filter = { _id: new ObjectId(id) };
+                const updatedTask = req.body;
+
+                const updateDoc = {
+                    $set: {
+                        title: updatedTask.title,
+                        category: updatedTask.category,
+                        description: updatedTask.description,
+                        budget: updatedTask.budget,
+                        deadline: updatedTask.deadline,
+                        // ClientId বা Email সাধারণত আপডেট করা হয় না, তাই এগুলো সেট করিনি
+                    },
+                };
+
+                const result = await TasksCollection.updateOne(filter, updateDoc);
+
+                if (result.modifiedCount > 0) {
+                    res.send({ success: true, message: "Task updated successfully" });
+                } else {
+                    res.status(400).send({ success: false, message: "No changes made" });
+                }
+            } catch (error) {
+                console.error("Update error:", error);
+                res.status(500).send({ message: "Internal server error" });
+            }
+        });
+
+
+        
+        // Express.js API
+app.delete('/api/admin/users/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // MongoDB Mongoose ডিলিট অপারেশন
+    const result = await User.findByIdAndDelete(id);
+
+    if (!result) {
+      return res.status(404).json({ 
+        success: false, 
+        message: "User not found in database!" 
+      });
+    }
+
+    res.status(200).json({ 
+      success: true, 
+      message: "User deleted permanently from collection." 
+    });
+  } catch (error) {
+    console.error("Delete API Error:", error);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+});
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
         // Send a ping to confirm a successful connection
         await client.db("admin").command({ ping: 1 });
