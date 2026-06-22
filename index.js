@@ -6,12 +6,13 @@ require('dotenv').config();
 app.use(cors());
 const port = process.env.PORT;
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
+const { createRemoteJWKSet, jwtVerify } = require('jose-cjs');
 const uri = process.env.MONGODB_URI;
 
 app.get('/', (req, res) => {
     res.send('Hello World!');
 });
-// Create a MongoClient with a MongoClientOptions object to set the Stable API version
+
 const client = new MongoClient(uri, {
     serverApi: {
         version: ServerApiVersion.v1,
@@ -20,7 +21,32 @@ const client = new MongoClient(uri, {
     }
 });
 
+const jwks = createRemoteJWKSet(new URL(`${process.env.NEXT_PUBLIC_BETTER_AUTH_URL}/api/auth/jwks`));
+
+const verifyToken = async (req, res, next) => {
+    const authHeader = req.headers.authorization;
+console.log("authheader", authHeader)
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+        return res.status(401).json({ message: "Unauthorized: Token not found" });
+    }
+
+    const token = authHeader.split(" ")[1];
+    console.log(token);
+
+    try {
+        const { payload } = await jwtVerify(token, jwks);
+        req.user = payload;
+        next();
+    } catch (error) {
+        console.log(error);
+        return res.status(401).json({ message: "Unauthorized: Invalid token" });
+    }
+};
+
+module.exports = verifyToken;
+
 async function run() {
+
     try {
         // Connect the client to the server	(optional starting in v4.7)
         const connection = await client.connect();
@@ -32,36 +58,70 @@ async function run() {
         const ReviewsCollection = db.collection("Reviews");
         const UserCollection = db.collection("user");
         const PaymentsCollection = db.collection("Payments");
-        const TaskCollection = db.collection("Tasks");
-
+        // NOTE: TaskCollection ছিল TasksCollection-এর duplicate reference, একটাই রাখা হলো।
+        // আগে যেখানে TaskCollection ব্যবহার হয়েছিল সেগুলো TasksCollection-এ পয়েন্ট করানো হয়েছে।
 
         app.get("/alluserusers", async (req, res) => {
-            const id = req.params.id;
-            const result = await UserCollection.find()
-            res.send(result)
-        })
-        app.get("/alltask", async (req, res) => {
-            const id = req.params.id;
-            const result = await TaskCollection.find()
-            res.send(result)
-        })
-        app.get("/allpayment", async (req, res) => {
-            const id = req.params.id;
-            const result = await PaymentsCollection.find()
-            res.send(result)
-        })
-        app.get("/allproposals", async (req, res) => {
-            const id = req.params.id;
-            const result = await proposalCollection.find()
-            res.send(result)
-        })
+            try {
+                const result = await UserCollection.find().toArray();
+                res.send(result);
+            } catch (error) {
+                console.error(error);
+                res.status(500).send({ message: "Server error" });
+            }
+        });
 
+        app.get("/alltask", async (req, res) => {
+            try {
+                const result = await TasksCollection.find().toArray();
+                res.send(result);
+            } catch (error) {
+                console.error(error);
+                res.status(500).send({ message: "Server error" });
+            }
+        });
+
+        app.get("/allpayment", async (req, res) => {
+            try {
+                const result = await PaymentsCollection.find().toArray();
+                res.send(result);
+            } catch (error) {
+                console.error(error);
+                res.status(500).send({ message: "Server error" });
+            }
+        });
+
+        app.get("/allproposals", async (req, res) => {
+            try {
+                const result = await proposalCollection.find().toArray();
+                res.send(result);
+            } catch (error) {
+                console.error(error);
+                res.status(500).send({ message: "Server error" });
+            }
+        });
 
         app.get("/users/:id", async (req, res) => {
-            const id = req.params.id;
-            const result = await UserCollection.findOne({ _id: new ObjectId(id) })
-            res.send(result)
-        })
+            try {
+                const { id } = req.params;
+
+                if (!ObjectId.isValid(id)) {
+                    return res.status(400).send({ message: "Invalid user id" });
+                }
+
+                const user = await UserCollection.findOne({ _id: new ObjectId(id) });
+
+                if (!user) {
+                    return res.status(404).send({ message: "User not found" });
+                }
+
+                res.send(user);
+            } catch (error) {
+                console.error(error);
+                res.status(500).send({ message: "Server error" });
+            }
+        });
+
         app.get("/freelancers", async (req, res) => {
             try {
                 const search = req.query.search || "";
@@ -113,14 +173,17 @@ async function run() {
             }
         });
 
-
         // task related funtion
-        app.post('/tasks', async (req, res) => {
-            const task = req.body;
-            const result = await TasksCollection.insertOne(task);
-            res.send(result);
+        app.post('/tasks', verifyToken, async (req, res) => {
+            try {
+                const task = req.body;
+                const result = await TasksCollection.insertOne(task);
+                res.send(result);
+            } catch (error) {
+                console.error(error);
+                res.status(500).send({ message: "Server error" });
+            }
         });
-
 
         app.get('/tasks', async (req, res) => {
             try {
@@ -160,11 +223,50 @@ async function run() {
         });
 
         app.get('/tasksid/:id', async (req, res) => {
-            const id = req.params.id;
-            const result = await TasksCollection.findOne({ _id: new ObjectId(id) });
-            res.send(result);
+            try {
+                const id = req.params.id;
+
+                if (!ObjectId.isValid(id)) {
+                    return res.status(400).send({ message: "Invalid task id" });
+                }
+
+                const result = await TasksCollection.findOne({ _id: new ObjectId(id) });
+
+                if (!result) {
+                    return res.status(404).send({ message: "Task not found" });
+                }
+
+                res.send(result);
+            } catch (error) {
+                console.error(error);
+                res.status(500).send({ message: "Server error" });
+            }
         });
-        app.get("/my-tasks/:clientId", async (req, res) => {
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        //clint
+        app.get("/my-tasks/:clientId", verifyToken, async (req, res) => {
             const clientId = req.params.clientId;
             const page = Number(req.query.page) || 1;
             const limit = Number(req.query.limit) || 2;
@@ -192,6 +294,20 @@ async function run() {
             }
         });
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
         app.patch("/updatetaskstatus/:taskId", async (req, res) => {
             const { taskId } = req.params;
             const { status, submitionLink, submitionMessage } = req.body;
@@ -203,13 +319,15 @@ async function run() {
             }
 
             try {
+                if (!ObjectId.isValid(taskId)) {
+                    return res.status(400).json({ message: "Invalid task id" });
+                }
+
                 const task = await TasksCollection.findOne({ _id: new ObjectId(taskId) });
-                const proposal = await proposalCollection.findOne({ _id: taskId });
-                console.log("tproposal for proposal", proposal)
 
                 if (!task) {
                     return res.status(404).json({
-                        message: "Proposal not found",
+                        message: "Task not found",
                         id: taskId,
                     });
                 }
@@ -228,43 +346,47 @@ async function run() {
                     message: "Updated successfully",
                     modifiedCount: result.modifiedCount,
                 });
-
-
             } catch (error) {
-                console.log(error);
-                res.status(500).json({ message: "Server error janina" });
+                console.error(error);
+                res.status(500).json({ message: "Server error" });
             }
         });
 
-
         app.delete("/deleteclinttask/:id", async (req, res) => {
-            const id = req.params.id
-            console.log("clint task delete", id)
-            const result = await TasksCollection.deleteOne({ _id: new ObjectId(id) })
-            res.send(result)
-        })
+            try {
+                const id = req.params.id;
 
+                if (!ObjectId.isValid(id)) {
+                    return res.status(400).send({ message: "Invalid task id" });
+                }
 
-        //proposal related funtion
+                const result = await TasksCollection.deleteOne({ _id: new ObjectId(id) });
+                res.send(result);
+            } catch (error) {
+                console.error(error);
+                res.status(500).send({ message: "Server error" });
+            }
+        });
+
+        // proposal related funtion
 
         app.post('/proposals', async (req, res) => {
-            const proposal = req.body;
-            const result = await proposalCollection.insertOne(proposal);
-            res.send(result);
+            try {
+                const proposal = req.body;
+                const result = await proposalCollection.insertOne(proposal);
+                res.send(result);
+            } catch (error) {
+                console.error(error);
+                res.status(500).send({ message: "Server error" });
+            }
         });
 
         app.delete("/proposals/:id", async (req, res) => {
             try {
                 const { id } = req.params;
 
-                if (!ObjectId.isValid(id)) {
-                    return res.status(400).send({
-                        success: false,
-                        message: "Invalid proposal id",
-                    });
-                }
-
-
+                // NOTE: proposalCollection-e _id plain string hisebe save hoy (ObjectId na),
+                // tai ObjectId.isValid() check kora thik hobe na — sothik id soja string e query kora hocche.
                 const result = await proposalCollection.deleteOne({ _id: id });
 
                 if (result.deletedCount === 0) {
@@ -279,7 +401,6 @@ async function run() {
                     message: "Proposal deleted successfully",
                     deletedCount: result.deletedCount,
                 });
-
             } catch (error) {
                 console.error(error);
                 res.status(500).send({
@@ -289,10 +410,8 @@ async function run() {
             }
         });
 
-
         app.patch("/task/proposals/:id", async (req, res) => {
             const { id } = req.params;
-
             const { status, submitDate } = req.body;
 
             const allowedStatuses = ["pending", "accepted", "rejected", "submited"];
@@ -332,9 +451,8 @@ async function run() {
                     message: "Updated successfully",
                     modifiedCount: result.modifiedCount,
                 });
-
             } catch (error) {
-                console.log(error);
+                console.error(error);
                 res.status(500).json({ message: "Server error" });
             }
         });
@@ -397,10 +515,16 @@ async function run() {
                 res.status(500).send({ message: "Server error" });
             }
         });
+
         app.get('/ClintProposals/:id', async (req, res) => {
-            const id = req.params.id;
-            const result = await proposalCollection.find({ ClientId: id }).toArray();
-            res.send(result);
+            try {
+                const id = req.params.id;
+                const result = await proposalCollection.find({ ClientId: id }).toArray();
+                res.send(result);
+            } catch (error) {
+                console.error(error);
+                res.status(500).send({ message: "Server error" });
+            }
         });
 
         app.get("/proposalTaskid/:id", async (req, res) => {
@@ -414,12 +538,13 @@ async function run() {
 
                 res.json(data);
             } catch (error) {
-                res.status(500).json({ message: "Server error", error });
+                console.error(error);
+                res.status(500).json({ message: "Server error" });
             }
         });
 
-
         app.get("/admin/users", async (req, res) => {
+            // NOTE: 'limite' spelling icche kore rakha hocche, frontend already eta use kore.
             const { page = 1, limite = 10 } = req.query;
             const skip = (Number(page) - 1) * Number(limite);
 
@@ -439,7 +564,6 @@ async function run() {
                 res.status(500).send({ message: "Server error" });
             }
         });
-
 
         // Block / Unblock  route
         app.patch("/admin/users/:id/block", async (req, res) => {
@@ -479,14 +603,14 @@ async function run() {
             }
         });
 
-
         app.get("/admin/tasks", async (req, res) => {
+            // NOTE: 'limite' spelling icche kore rakha hocche, frontend already eta use kore.
             const { page = 1, limite = 10 } = req.query;
             const skip = (Number(page) - 1) * Number(limite);
 
             try {
-                const total = await TaskCollection.countDocuments({});
-                const result = await TaskCollection.find({})
+                const total = await TasksCollection.countDocuments({});
+                const result = await TasksCollection.find({})
                     .skip(skip)
                     .limit(Number(limite))
                     .toArray();
@@ -502,9 +626,10 @@ async function run() {
             }
         });
 
-        app.get("/admin/transactions", async (req, res) => {
+        app.get("/admin/transactions", verifyToken, async (req, res) => {
             const { page = 1, limite = 10 } = req.query;
             const skip = (Number(page) - 1) * Number(limite);
+
 
             try {
                 const total = await PaymentsCollection.countDocuments({});
@@ -525,7 +650,7 @@ async function run() {
             }
         });
 
-        // Task delete 
+        // Task delete
         app.delete("/admin/tasks/:id", async (req, res) => {
             try {
                 const { id } = req.params;
@@ -650,35 +775,16 @@ async function run() {
             }
         });
 
-
         // freelancer actions
-        app.get("/users/:id", async (req, res) => {
-            try {
-                const { id } = req.params;
-
-                if (!ObjectId.isValid(id)) {
-                    return res.status(400).send({ message: "Invalid user id" });
-                }
-
-                const user = await UserCollection.findOne({ _id: new ObjectId(id) });
-
-                if (!user) {
-                    return res.status(404).send({ message: "User not found" });
-                }
-
-                res.send(user);
-            } catch (error) {
-                console.error(error);
-                res.status(500).send({ message: "Server error" });
-            }
-        });
-
-
-
+        // NOTE: ei route ti age duibar define kora thakto (jeita uporer thakto setai junk hoye
+        // jeto, karon nicher generic version-i kaj korto). Ekhon merge kore ekta version e
+        // rakha holo: jodi specific fields (title/bio/hourlyRate/location/skills/category)
+        // pathano hoy, sheigulo validate/convert kora hoy; baki extra field thakle (...rest)
+        // shegulo o spread kore set kora hoy — flexible thakar jonno.
         app.patch("/users/:id/profile", async (req, res) => {
             try {
                 const { id } = req.params;
-                const { title, bio, hourlyRate, location, skills, category } = req.body;
+                const { title, bio, hourlyRate, location, skills, category, ...rest } = req.body;
 
                 if (!ObjectId.isValid(id)) {
                     return res.status(400).send({
@@ -687,21 +793,21 @@ async function run() {
                     });
                 }
 
-                const updateDoc = {
-                    $set: {
-                        title,
-                        bio,
-                        hourlyRate: Number(hourlyRate),
-                        location,
-                        skills,
-                        category,
-                        updatedAt: new Date(),
-                    },
+                const updateFields = {
+                    ...rest,
+                    updatedAt: new Date(),
                 };
+
+                if (title !== undefined) updateFields.title = title;
+                if (bio !== undefined) updateFields.bio = bio;
+                if (location !== undefined) updateFields.location = location;
+                if (skills !== undefined) updateFields.skills = skills;
+                if (category !== undefined) updateFields.category = category;
+                if (hourlyRate !== undefined) updateFields.hourlyRate = Number(hourlyRate);
 
                 const result = await UserCollection.updateOne(
                     { _id: new ObjectId(id) },
-                    updateDoc
+                    { $set: updateFields }
                 );
 
                 if (result.matchedCount === 0) {
@@ -714,11 +820,15 @@ async function run() {
                 res.send({
                     success: true,
                     message: "Profile updated successfully",
+                    matchedCount: result.matchedCount,
                     modifiedCount: result.modifiedCount,
                 });
             } catch (error) {
-                console.error(error);
-                res.status(500).send({ message: "Server error" });
+                console.error("Profile Update Error:", error);
+                res.status(500).send({
+                    success: false,
+                    message: error.message,
+                });
             }
         });
 
@@ -756,9 +866,7 @@ async function run() {
             }
         });
 
-        //payment related kaj
-
-
+        // payment related kaj
 
         app.post('/payments', async (req, res) => {
             try {
@@ -767,22 +875,22 @@ async function run() {
                     ClientId,
                     Clintemail,
                     Freelancer,
-                    FreelancerId,   // 👈 add koro
+                    FreelancerId,
                     ProposedId,
                     price,
                     title
-                } = req.body
+                } = req.body;
 
                 if (!session_id) {
-                    return res.status(400).json({ message: 'session_id is required' })
+                    return res.status(400).json({ message: 'session_id is required' });
                 }
 
-                const existing = await PaymentsCollection.findOne({ session_id })
+                const existing = await PaymentsCollection.findOne({ session_id });
                 if (existing) {
                     return res.status(200).json({
                         message: 'Payment already recorded',
                         alreadyExists: true
-                    })
+                    });
                 }
 
                 const result = await PaymentsCollection.insertOne({
@@ -790,26 +898,25 @@ async function run() {
                     ClientId,
                     Clintemail,
                     Freelancer,
-                    FreelancerId,   // 👈 add koro
+                    FreelancerId,
                     ProposedId,
                     price,
                     title,
                     createdAt: new Date()
-                })
+                });
 
                 res.status(201).json({
                     message: 'Payment recorded successfully',
                     insertedId: result.insertedId
-                })
+                });
             } catch (error) {
-                console.log('Error saving payment:', error)
-                res.status(500).json({ message: 'Internal server error' })
+                console.error('Error saving payment:', error);
+                res.status(500).json({ message: 'Internal server error' });
             }
-        })
+        });
 
         app.get("/pendingProposalsByClient/:clientId", async (req, res) => {
             const clientId = req.params.clientId;
-            console.log(clientId)
             const page = Number(req.query.page) || 1;
             const limit = Number(req.query.limit) || 10;
             const skip = (page - 1) * limit;
@@ -840,10 +947,6 @@ async function run() {
             }
         });
 
-
-
-
-
         app.get("/myFreelancerTransactions/:freelancerId", async (req, res) => {
             const freelancerId = req.params.freelancerId;
             const page = Number(req.query.page) || 1;
@@ -873,53 +976,6 @@ async function run() {
             }
         });
 
-
-       app.patch("/users/:id/profile", async (req, res) => {
-  try {
-    const { id } = req.params;
-    const body = req.body;
-
-    if (!ObjectId.isValid(id)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid user id",
-      });
-    }
-
-    const updateFields = {
-      ...body,
-      updatedAt: new Date(),
-    };
-
-    if (body.hourlyRate !== undefined) {
-      updateFields.hourlyRate = Number(body.hourlyRate);
-    }
-
-    const result = await UserCollection.updateOne(
-      { _id: new ObjectId(id) },
-      { $set: updateFields }
-    );
-
-    return res.status(200).json({
-      success: true,
-      message: "Profile updated successfully",
-      matchedCount: result.matchedCount,
-      modifiedCount: result.modifiedCount,
-    });
-  } catch (error) {
-    console.error("Profile Update Error:", error);
-
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-    });
-  }
-});
-
-
-
-
-
         // Send a ping to confirm a successful connection
         await client.db("admin").command({ ping: 1 });
         console.log("Pinged your deployment. You successfully connected to MongoDB!");
@@ -930,6 +986,5 @@ async function run() {
 }
 run().catch(console.dir);
 app.listen(port, () => {
-    console.log(`Example app listening on port ${port}`)
-})
-
+    console.log(`Example app listening on port ${port}`);
+});
