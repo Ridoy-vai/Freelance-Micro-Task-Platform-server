@@ -1008,31 +1008,31 @@ async function run() {
         });
 
 
-        
+
         // Express.js API
-app.delete('/api/admin/users/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
+        app.delete('/api/admin/users/:id', async (req, res) => {
+            try {
+                const { id } = req.params;
 
-    // MongoDB Mongoose ডিলিট অপারেশন
-    const result = await User.findByIdAndDelete(id);
+                // MongoDB Mongoose ডিলিট অপারেশন
+                const result = await User.findByIdAndDelete(id);
 
-    if (!result) {
-      return res.status(404).json({ 
-        success: false, 
-        message: "User not found in database!" 
-      });
-    }
+                if (!result) {
+                    return res.status(404).json({
+                        success: false,
+                        message: "User not found in database!"
+                    });
+                }
 
-    res.status(200).json({ 
-      success: true, 
-      message: "User deleted permanently from collection." 
-    });
-  } catch (error) {
-    console.error("Delete API Error:", error);
-    res.status(500).json({ success: false, message: "Internal server error" });
-  }
-});
+                res.status(200).json({
+                    success: true,
+                    message: "User deleted permanently from collection."
+                });
+            } catch (error) {
+                console.error("Delete API Error:", error);
+                res.status(500).json({ success: false, message: "Internal server error" });
+            }
+        });
 
 
 
@@ -1056,8 +1056,8 @@ app.delete('/api/admin/users/:id', async (req, res) => {
 
 
         // Send a ping to confirm a successful connection
-        await client.db("admin").command({ ping: 1 });
-        console.log("Pinged your deployment. You successfully connected to MongoDB!");
+        // await client.db("admin").command({ ping: 1 });
+        // console.log("Pinged your deployment. You successfully connected to MongoDB!");
     } finally {
         // Ensures that the client will close when you finish/error
         // await client.close();
