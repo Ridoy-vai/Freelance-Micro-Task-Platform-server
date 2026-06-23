@@ -9,9 +9,7 @@ const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 const { createRemoteJWKSet, jwtVerify } = require('jose-cjs');
 const uri = process.env.MONGODB_URI;
 
-app.get('/', (req, res) => {
-    res.send('Hello World!');
-});
+
 
 const client = new MongoClient(uri, {
     serverApi: {
@@ -21,29 +19,29 @@ const client = new MongoClient(uri, {
     }
 });
 
-const jwks = createRemoteJWKSet(new URL(`${process.env.NEXT_PUBLIC_BETTER_AUTH_URL}/api/auth/jwks`));
+// const jwks = createRemoteJWKSet(new URL(`${process.env.NEXT_PUBLIC_BETTER_AUTH_URL}/api/auth/jwks`));
 
-const verifyToken = async (req, res, next) => {
-    const authHeader = req.headers.authorization;
-    console.log("authheader", authHeader)
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-        return res.status(401).json({ message: "Unauthorized: Token not found" });
-    }
+// const verifyToken = async (req, res, next) => {
+//     const authHeader = req.headers.authorization;
+//     console.log("authheader", authHeader)
+//     if (!authHeader || !authHeader.startsWith("Bearer ")) {
+//         return res.status(401).json({ message: "Unauthorized: Token not found" });
+//     }
 
-    const token = authHeader.split(" ")[1];
-    console.log(token);
+//     const token = authHeader.split(" ")[1];
+//     console.log(token);
 
-    try {
-        const { payload } = await jwtVerify(token, jwks);
-        req.user = payload;
-        next();
-    } catch (error) {
-        console.log(error);
-        return res.status(401).json({ message: "Unauthorized: Invalid token" });
-    }
-};
+//     try {
+//         const { payload } = await jwtVerify(token, jwks);
+//         req.user = payload;
+//         next();
+//     } catch (error) {
+//         console.log(error);
+//         return res.status(401).json({ message: "Unauthorized: Invalid token" });
+//     }
+// };
 
-module.exports = verifyToken;
+module.exports = app;
 
 async function run() {
 
@@ -174,7 +172,7 @@ async function run() {
         });
 
         // task related funtion
-        app.post('/tasks', verifyToken, async (req, res) => {
+        app.post('/tasks', async (req, res) => {
             try {
                 const task = req.body;
                 const result = await TasksCollection.insertOne(task);
@@ -1050,7 +1048,9 @@ async function run() {
 
 
 
-
+        app.get('/', (req, res) => {
+            res.send('Hello World!');
+        });
 
 
 
