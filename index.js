@@ -1075,6 +1075,97 @@ app.delete('/api/admin/users/:id', async (req, res) => {
     }
 });
 
+
+// review / rating related kaj
+// ---------------------------------------------------------------------------
+// POST /reviews: notun review save kore, tarpor shei freelancer-er User
+// document-e average rating recalculate kore update kore. Eta duita step
+// ekta route-er bhitore kora hocche karon dutoi ekই action er part —
+// review chara rating update kora uchit na, ar update fail hole o review
+// ta save thake (best-effort: review save hole successful response jabe,
+// rating update fail korle shudhu log hobe, user-er flow block hobe na).
+app.post("/reviews", async (req, res) => {
+    try {
+        const db = await getDB();
+        const ReviewsCollection = db.collection("Reviews");
+        const UserCollection = db.collection("user");
+
+        const { freelancerId, rating, review, clientId, clientName } = req.body;
+
+        if (!freelancerId || !ObjectId.isValid(freelancerId)) {
+            return res.status(400).send({ success: false, message: "Invalid freelancer id" });
+        }
+
+        const numericRating = Number(rating);
+        if (!numericRating || numericRating < 1 || numericRating > 5) {
+            return res.status(400).send({ success: false, message: "Rating must be between 1 and 5" });
+        }
+
+        const newReview = {
+            freelancerId,
+            clientId: clientId || null,
+            clientName: clientName || "Anonymous",
+            rating: numericRating,
+            review: review || "",
+            createdAt: new Date(),
+        };
+
+        const insertResult = await ReviewsCollection.insertOne(newReview);
+
+        // Average rating recalculate — Reviews collection theke ei freelancer-er
+        // shob review niye notun average hisheb kora hocche.
+        try {
+            const allReviews = await ReviewsCollection.find({ freelancerId }).toArray();
+            const totalRating = allReviews.reduce((sum, r) => sum + (r.rating || 0), 0);
+            const avgRating = totalRating / allReviews.length;
+
+            await UserCollection.updateOne(
+                { _id: new ObjectId(freelancerId) },
+                {
+                    $set: {
+                        rating: Math.round(avgRating * 10) / 10, // 1 decimal point e round
+                        totalReviews: allReviews.length,
+                    },
+                }
+            );
+        } catch (avgError) {
+            // Rating update fail korlew review save hoye geche, tai shudhu log
+            console.error("Average rating update failed:", avgError);
+        }
+
+        res.status(201).send({
+            success: true,
+            message: "Review submitted successfully",
+            insertedId: insertResult.insertedId,
+        });
+    } catch (error) {
+        console.error(error);
+        res.status(500).send({ success: false, message: "Server error" });
+    }
+});
+
+// GET /reviews/:freelancerId — ei freelancer-er shob review list (future e
+// "Recent reviews" section dekhanor jonno lagbe)
+app.get("/reviews/:freelancerId", async (req, res) => {
+    try {
+        const db = await getDB();
+        const ReviewsCollection = db.collection("Reviews");
+        const { freelancerId } = req.params;
+
+        const result = await ReviewsCollection
+            .find({ freelancerId })
+            .sort({ createdAt: -1 })
+            .toArray();
+
+        res.send({ reviews: result, totalReviews: result.length });
+    } catch (error) {
+        console.error(error);
+        res.status(500).send({ message: "Server error" });
+    }
+});
+
+
+
 // ---------------------------------------------------------------------------
 // Local development e ei file directly run korle (node server.js) ekhane
 // app.listen() call hobe. Vercel deploy howar shomoy Vercel nijer wrapper
