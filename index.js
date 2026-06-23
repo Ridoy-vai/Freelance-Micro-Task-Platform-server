@@ -1050,32 +1050,46 @@ app.put("/updateclinttask/:id", async (req, res) => {
     }
 });
 
-// Express.js API
+
+
 app.delete('/api/admin/users/:id', async (req, res) => {
     try {
-        const { id } = req.params;
+        // ১. রাউটে :id আছে, তাই params.id থেকে নিতে হবে
+        const  id  = req.params;
 
-        // MongoDB Mongoose ডিলিট অপারেশন
-        const result = await User.findByIdAndDelete(id);
+        console.log("Attempting to delete user with ID:", id);
 
-        if (!result) {
+        // ২. আইডি ভ্যালিড কি না চেক করা
+        if (!id || !ObjectId.isValid(id)) {
+            return res.status(400).json({ success: false, message: "Invalid ID format" });
+        }
+
+        const db = await getDB();
+        const UserCollection = db.collection("user"); // আপনার কালেকশন নাম নিশ্চিত করুন
+
+        // ৩. ডিলিট অপারেশন (অবশ্যই কুয়েরি অবজেক্ট এবং ObjectId ব্যবহার করতে হবে)
+        const result = await UserCollection.deleteOne({ _id: new ObjectId(id) });
+
+        // ৪. চেক করুন আসলে ডিলিট হয়েছে কি না
+        if (result.deletedCount === 1) {
+            console.log("Successfully deleted user:", id);
+            return res.status(200).json({
+                success: true,
+                message: "User deleted permanently."
+            });
+        } else {
+            console.log("No user found with this ID to delete.");
             return res.status(404).json({
                 success: false,
                 message: "User not found in database!"
             });
         }
 
-        res.status(200).json({
-            success: true,
-            message: "User deleted permanently from collection."
-        });
     } catch (error) {
         console.error("Delete API Error:", error);
-        res.status(500).json({ success: false, message: "Internal server error" });
+        res.status(500).json({ success: false, message: "Internal server error: " + error.message });
     }
 });
-
-
 // review / rating related kaj
 // ---------------------------------------------------------------------------
 // POST /reviews: notun review save kore, tarpor shei freelancer-er User
