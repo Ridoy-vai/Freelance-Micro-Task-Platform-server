@@ -308,6 +308,7 @@ app.get("/my-tasks/:clientId", async (req, res) => {
 
 app.patch("/updatetaskstatus/:taskId", async (req, res) => {
     const { taskId } = req.params;
+    console.log(taskId)
     const { status, submitionLink, submitionMessage } = req.body;
 
     const allowedStatuses = ["booked", "submited"];
@@ -342,6 +343,7 @@ app.patch("/updatetaskstatus/:taskId", async (req, res) => {
             { _id: new ObjectId(taskId) },
             { $set: updateFields }
         );
+        
 
         res.json({
             message: "Updated successfully",
@@ -352,6 +354,156 @@ app.patch("/updatetaskstatus/:taskId", async (req, res) => {
         res.status(500).json({ message: "Server error" });
     }
 });
+
+
+app.patch("/reject-pending/:taskId", async (req, res) => {
+    try {
+        const db = await getDB();
+        const proposalCollection = db.collection("proposals");
+        const { taskId } = req.params;
+
+        console.log("taskId:", taskId);
+
+        const proposals = await proposalCollection.find({
+            taskId: taskId
+        }).toArray();
+
+        console.log("found proposals:", proposals);
+
+        const result = await proposalCollection.updateMany(
+            {
+                taskId: taskId,
+                status: "pending"
+            },
+            {
+                $set: {
+                    status: "reject"
+                }
+            }
+        );
+
+        console.log(result);
+
+        res.send(result);
+    } catch (err) {
+        console.log(err);
+        res.status(500).send(err.message);
+    }
+});
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 app.delete("/deleteclinttask/:id", async (req, res) => {
     try {
@@ -373,11 +525,30 @@ app.delete("/deleteclinttask/:id", async (req, res) => {
 
 // proposal related funtion
 
+// const { ObjectId } = require("mongodb");
+
 app.post('/proposals', async (req, res) => {
     try {
         const db = await getDB();
+        const tasksCollection = db.collection("Tasks");
         const proposalCollection = db.collection("proposals");
-        const proposal = req.body;
+
+        const { _id, ...proposal } = req.body; // client থেকে আসা _id বাদ দিয়ে দেওয়া হলো
+
+        const task = await tasksCollection.findOne({
+            _id: new ObjectId(proposal.taskId),
+        });
+
+        if (!task) {
+            return res.status(404).send({ message: "Task not found" });
+        }
+
+        if (task.status === "pending" || task.status === "booked") {
+            return res.status(409).send({
+                message: "This task is no longer accepting proposals",
+            });
+        }
+
         const result = await proposalCollection.insertOne(proposal);
         res.send(result);
     } catch (error) {
@@ -385,6 +556,8 @@ app.post('/proposals', async (req, res) => {
         res.status(500).send({ message: "Server error" });
     }
 });
+
+
 
 app.delete("/proposals/:id", async (req, res) => {
     try {
@@ -419,6 +592,7 @@ app.delete("/proposals/:id", async (req, res) => {
 
 app.patch("/task/proposals/:id", async (req, res) => {
     const { id } = req.params;
+    console.log(id)
     const { status, submitDate } = req.body;
 
     const allowedStatuses = ["pending", "accepted", "rejected", "submited"];
@@ -432,7 +606,7 @@ app.patch("/task/proposals/:id", async (req, res) => {
     try {
         const db = await getDB();
         const proposalCollection = db.collection("proposals");
-        const proposal = await proposalCollection.findOne({ _id: id });
+        const proposal = await proposalCollection.findOne({ _id: new ObjectId(id) });
 
         if (!proposal) {
             return res.status(404).json({
@@ -452,7 +626,7 @@ app.patch("/task/proposals/:id", async (req, res) => {
         }
 
         const result = await proposalCollection.updateOne(
-            { _id: id },
+            { _id: new ObjectId(id) },
             updateDoc
         );
 
@@ -547,7 +721,7 @@ app.get("/proposalTaskid/:id", async (req, res) => {
         const db = await getDB();
         const proposalCollection = db.collection("proposals");
         const { id } = req.params;
-        const data = await proposalCollection.findOne({ _id: id });
+        const data = await proposalCollection.findOne({ _id: new ObjectId(id) });
 
         if (!data) {
             return res.status(404).json({ message: "Data not found" });
@@ -1055,7 +1229,7 @@ app.put("/updateclinttask/:id", async (req, res) => {
 app.delete('/api/admin/users/:id', async (req, res) => {
     try {
         // ১. রাউটে :id আছে, তাই params.id থেকে নিতে হবে
-        const  id  = req.params;
+        const id = req.params;
 
         console.log("Attempting to delete user with ID:", id);
 
