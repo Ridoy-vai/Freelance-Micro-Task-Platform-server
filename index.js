@@ -252,29 +252,41 @@ app.get('/tasks', async (req, res) => {
     }
 });
 
+//?????????????????????????????????? ok
 app.get('/tasksid/:id', async (req, res) => {
     try {
         const db = await getDB();
         const TasksCollection = db.collection("Tasks");
+        const ProposalsCollection = db.collection("proposals");
         const id = req.params.id;
+        const { freelancerId } = req.query;
 
         if (!ObjectId.isValid(id)) {
             return res.status(400).send({ message: "Invalid task id" });
         }
 
-        const result = await TasksCollection.findOne({ _id: new ObjectId(id) });
+        const task = await TasksCollection.findOne({ _id: new ObjectId(id) });
 
-        if (!result) {
+        if (!task) {
             return res.status(404).send({ message: "Task not found" });
         }
 
-        res.send(result);
+        let alreadyApplied = false;
+
+        if (freelancerId) {
+            const existingProposal = await ProposalsCollection.findOne({
+                taskId: id,
+                FreelancerId: freelancerId,
+            });
+            alreadyApplied = !!existingProposal;
+        }
+
+        res.send({ ...task, alreadyApplied });
     } catch (error) {
         console.error(error);
         res.status(500).send({ message: "Server error" });
     }
 });
-
 //clint
 app.get("/my-tasks/:clientId", async (req, res) => {
     const clientId = req.params.clientId;
@@ -343,7 +355,7 @@ app.patch("/updatetaskstatus/:taskId", async (req, res) => {
             { _id: new ObjectId(taskId) },
             { $set: updateFields }
         );
-        
+
 
         res.json({
             message: "Updated successfully",
@@ -504,7 +516,7 @@ app.patch("/reject-pending/:taskId", async (req, res) => {
 
 
 
-
+//?????????????????????????????????????????????????????????? ok
 app.delete("/deleteclinttask/:id", async (req, res) => {
     try {
         const db = await getDB();
@@ -557,7 +569,7 @@ app.post('/proposals', async (req, res) => {
     }
 });
 
-
+//?????????????????????????????????????????????????????????????????????  no err or
 
 app.delete("/proposals/:id", async (req, res) => {
     try {
@@ -567,7 +579,7 @@ app.delete("/proposals/:id", async (req, res) => {
 
         // NOTE: proposalCollection-e _id plain string hisebe save hoy (ObjectId na),
         // tai ObjectId.isValid() check kora thik hobe na — sothik id soja string e query kora hocche.
-        const result = await proposalCollection.deleteOne({ _id: id });
+        const result = await proposalCollection.deleteOne({ _id: new ObjectId(id) });
 
         if (result.deletedCount === 0) {
             return res.status(404).send({
@@ -1192,6 +1204,8 @@ app.get("/myFreelancerTransactions/:freelancerId", async (req, res) => {
     }
 });
 
+
+//???????????????????????????????????????????????????????????????? ok
 app.put("/updateclinttask/:id", async (req, res) => {
     try {
         const db = await getDB();
