@@ -318,16 +318,24 @@ app.get("/my-tasks/:clientId", async (req, res) => {
     }
 });
 
+
+// ????????????????????????????????????????????????????????? ok
 app.patch("/updatetaskstatus/:taskId", async (req, res) => {
     const { taskId } = req.params;
     console.log(taskId)
     const { status, submitionLink, submitionMessage } = req.body;
+    console.log("status received:", JSON.stringify(status)); // এটা বসাও
 
     const allowedStatuses = ["booked", "submited"];
 
     if (!allowedStatuses.includes(status)) {
+        console.log("status validation failed!"); // এটাও বসাও
         return res.status(400).json({ message: "Invalid status value" });
     }
+    if (!ObjectId.isValid(taskId)) {
+        return res.status(400).json({ message: "Invalid task id" });
+    }
+    
 
     try {
         const db = await getDB();
@@ -338,7 +346,7 @@ app.patch("/updatetaskstatus/:taskId", async (req, res) => {
         }
 
         const task = await TasksCollection.findOne({ _id: new ObjectId(taskId) });
-
+        console.log("task found?:", task ? "YES" : "NO", "taskId used:", taskId);
         if (!task) {
             return res.status(404).json({
                 message: "Task not found",
@@ -346,7 +354,6 @@ app.patch("/updatetaskstatus/:taskId", async (req, res) => {
             });
         }
 
-        // একটাই $set object বানালাম, যেখানে link/message থাকলেই add হবে
         const updateFields = { status };
         if (submitionLink !== undefined) updateFields.submitionLink = submitionLink;
         if (submitionMessage !== undefined) updateFields.submitionMessage = submitionMessage;
@@ -402,118 +409,6 @@ app.patch("/reject-pending/:taskId", async (req, res) => {
         res.status(500).send(err.message);
     }
 });
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 //?????????????????????????????????????????????????????????? ok
@@ -602,10 +497,11 @@ app.delete("/proposals/:id", async (req, res) => {
     }
 });
 
+//?????????????????????????????????????????????????????????? ok
 app.patch("/task/proposals/:id", async (req, res) => {
     const { id } = req.params;
-    console.log(id)
-    const { status, submitDate } = req.body;
+    console.log("/task/proposals", id);
+    const { status, submitionLink, submitionMessage, submitDate } = req.body;
 
     const allowedStatuses = ["pending", "accepted", "rejected", "submited"];
 
@@ -618,7 +514,10 @@ app.patch("/task/proposals/:id", async (req, res) => {
     try {
         const db = await getDB();
         const proposalCollection = db.collection("proposals");
+        const TasksCollection = db.collection("Tasks");
+
         const proposal = await proposalCollection.findOne({ _id: new ObjectId(id) });
+        console.log("/task/proposals", proposal);
 
         if (!proposal) {
             return res.status(404).json({
@@ -627,6 +526,7 @@ app.patch("/task/proposals/:id", async (req, res) => {
             });
         }
 
+        // ১. proposal আপডেট
         const updateDoc = {
             $set: {
                 status,
@@ -637,20 +537,59 @@ app.patch("/task/proposals/:id", async (req, res) => {
             updateDoc.$set.submitDate = submitDate || new Date().toISOString();
         }
 
+        // proposal এও link/message যুক্ত হবে যদি থাকে
+        if (submitionLink !== undefined) updateDoc.$set.submitionLink = submitionLink;
+        if (submitionMessage !== undefined) updateDoc.$set.submitionMessage = submitionMessage;
+
         const result = await proposalCollection.updateOne(
             { _id: new ObjectId(id) },
             updateDoc
         );
 
+        // ২. status === "submited" হলে সংশ্লিষ্ট Task ও আপডেট করো
+        let taskUpdateResult = null;
+
+        if (status === "submited" && proposal.taskId) {
+            const taskUpdateFields = {
+                status: "submited",
+            };
+
+            if (submitionLink !== undefined) taskUpdateFields.submitionLink = submitionLink;
+            if (submitionMessage !== undefined) taskUpdateFields.submitionMessage = submitionMessage;
+            taskUpdateFields.submitDate = updateDoc.$set.submitDate;
+
+            taskUpdateResult = await TasksCollection.updateOne(
+                { _id: new ObjectId(proposal.taskId) },
+                { $set: taskUpdateFields }
+            );
+
+            console.log("task updateFields:", taskUpdateFields);
+            console.log("task matchedCount:", taskUpdateResult.matchedCount);
+            console.log("task modifiedCount:", taskUpdateResult.modifiedCount);
+        }
+
         res.json({
             message: "Updated successfully",
             modifiedCount: result.modifiedCount,
+            taskModifiedCount: taskUpdateResult ? taskUpdateResult.modifiedCount : null,
         });
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: "Server error" });
     }
 });
+
+
+
+
+
+
+
+
+
+
+
+
 
 app.get('/myProposals/:id', async (req, res) => {
     const id = req.params.id;
