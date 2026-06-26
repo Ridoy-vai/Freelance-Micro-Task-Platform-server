@@ -430,10 +430,6 @@ app.delete("/deleteclinttask/:id", async (req, res) => {
     }
 });
 
-// proposal related funtion
-
-// const { ObjectId } = require("mongodb");
-
 app.post('/proposals', async (req, res) => {
     try {
         const db = await getDB();
@@ -578,18 +574,6 @@ app.patch("/task/proposals/:id", async (req, res) => {
         res.status(500).json({ message: "Server error" });
     }
 });
-
-
-
-
-
-
-
-
-
-
-
-
 
 app.get('/myProposals/:id', async (req, res) => {
     const id = req.params.id;
@@ -1181,23 +1165,18 @@ app.put("/updateclinttask/:id", async (req, res) => {
 
 app.delete('/api/admin/users/:id', async (req, res) => {
     try {
-        // ১. রাউটে :id আছে, তাই params.id থেকে নিতে হবে
         const id = req.params;
 
         console.log("Attempting to delete user with ID:", id);
 
-        // ২. আইডি ভ্যালিড কি না চেক করা
         if (!id || !ObjectId.isValid(id)) {
             return res.status(400).json({ success: false, message: "Invalid ID format" });
         }
 
         const db = await getDB();
-        const UserCollection = db.collection("user"); // আপনার কালেকশন নাম নিশ্চিত করুন
-
-        // ৩. ডিলিট অপারেশন (অবশ্যই কুয়েরি অবজেক্ট এবং ObjectId ব্যবহার করতে হবে)
+        const UserCollection = db.collection("user");
         const result = await UserCollection.deleteOne({ _id: new ObjectId(id) });
 
-        // ৪. চেক করুন আসলে ডিলিট হয়েছে কি না
         if (result.deletedCount === 1) {
             console.log("Successfully deleted user:", id);
             return res.status(200).json({
@@ -1217,14 +1196,57 @@ app.delete('/api/admin/users/:id', async (req, res) => {
         res.status(500).json({ success: false, message: "Internal server error: " + error.message });
     }
 });
-// review / rating related kaj
-// ---------------------------------------------------------------------------
-// POST /reviews: notun review save kore, tarpor shei freelancer-er User
-// document-e average rating recalculate kore update kore. Eta duita step
-// ekta route-er bhitore kora hocche karon dutoi ekই action er part —
-// review chara rating update kora uchit na, ar update fail hole o review
-// ta save thake (best-effort: review save hole successful response jabe,
-// rating update fail korle shudhu log hobe, user-er flow block hobe na).
+
+
+
+
+app.get("/featured-tasks", async (req, res) => {
+    try {
+        const limit = parseInt(req.query.limit) || 6;
+
+        const db = await getDB();
+        const tasksCollection = db.collection("Tasks");
+
+        const tasks = await tasksCollection
+            .find({ status: "open" })
+            .sort({ _id: -1 }) // latest first (ObjectId embeds creation time)
+            .limit(limit)
+            .toArray();
+
+        res.status(200).json({ tasks });
+    } catch (error) {
+        console.error("Error fetching featured tasks:", error);
+        res.status(500).json({ message: "Failed to fetch featured tasks" });
+    }
+});
+
+
+// GET /featured-freelancers?limit=6
+// Returns top-rated, non-blocked freelancers
+app.get("/featured-freelancers", async (req, res) => {
+    try {
+        const limit = parseInt(req.query.limit) || 6;
+
+        const db = await getDB();
+        const UserCollection = db.collection("user");
+
+        const freelancers = await UserCollection
+            .find({
+                role: "freelancer",
+                isBlocked: { $ne: true }
+            })
+            .sort({ rating: -1 })
+            .limit(limit)
+            .toArray();
+
+        res.status(200).json({ freelancers });
+    } catch (error) {
+        console.error("Error fetching featured freelancers:", error);
+        res.status(500).json({ message: "Failed to fetch featured freelancers" });
+    }
+});
+
+
 app.post("/reviews", async (req, res) => {
     try {
         const db = await getDB();
@@ -1253,8 +1275,6 @@ app.post("/reviews", async (req, res) => {
 
         const insertResult = await ReviewsCollection.insertOne(newReview);
 
-        // Average rating recalculate — Reviews collection theke ei freelancer-er
-        // shob review niye notun average hisheb kora hocche.
         try {
             const allReviews = await ReviewsCollection.find({ freelancerId }).toArray();
             const totalRating = allReviews.reduce((sum, r) => sum + (r.rating || 0), 0);
@@ -1270,7 +1290,6 @@ app.post("/reviews", async (req, res) => {
                 }
             );
         } catch (avgError) {
-            // Rating update fail korlew review save hoye geche, tai shudhu log
             console.error("Average rating update failed:", avgError);
         }
 
@@ -1285,8 +1304,7 @@ app.post("/reviews", async (req, res) => {
     }
 });
 
-// GET /reviews/:freelancerId — ei freelancer-er shob review list (future e
-// "Recent reviews" section dekhanor jonno lagbe)
+
 app.get("/reviews/:freelancerId", async (req, res) => {
     try {
         const db = await getDB();
@@ -1306,12 +1324,6 @@ app.get("/reviews/:freelancerId", async (req, res) => {
 });
 
 
-
-// ---------------------------------------------------------------------------
-// Local development e ei file directly run korle (node server.js) ekhane
-// app.listen() call hobe. Vercel deploy howar shomoy Vercel nijer wrapper
-// theke app handle kore, tai PORT na thakle eta crash korbe na — process.env.PORT
-// na thakle fallback 5000 e listen korbe (local testing er jonno).
 if (require.main === module) {
     const port = process.env.PORT || 5000;
     app.listen(port, () => {
